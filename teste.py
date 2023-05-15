@@ -15,23 +15,21 @@ def load_data():
     # Load the CSV files as numpy matrices
     datasets = {}
     for file in csv_files:
-        matrix = np.loadtxt(file, delimiter=",")
+        matrix = np.genfromtxt(file, delimiter=",")
         file_name = os.path.basename(file).split('.')[0]
         datasets[file_name] = matrix
 
     return datasets
 
-
-
 solver = srs.SymbolicRegressionSolver()
-X_train = np.array([[1, 1], [2, 2], [1, 2]])
-y_train = np.array([2, 4, 3])
+X_train = np.array([[1, 1], [2, 2], [1, 2], [0, 1], [0, 0], [2, 1]])
+y_train = np.array([2, 4, 3, 1, 0, 3])
 
-X_test = np.array([[3, 3], [3, 1], [1, 3]])
-y_test = np.array([6, 4, 4])
+X_test = np.array([[3, 3], [3, 1], [1, 3], [1, 1]])
+y_test = np.array([6, 4, 4, 2])
 
 solver.fit(X_train, y_train)
-solver.predict(X_test)
+predicted = solver.predict(X_test)
 solver.score(y_test)
 
 solver.print_predicted_expression()

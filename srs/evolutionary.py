@@ -1,11 +1,20 @@
 from datetime import datetime
 #from tqdm import tqdm
 import numpy as np
+import copy
 
 from srs.cfg import CFG
+from srs.operators import crossover, mutate, tournament, roulette
+from srs.util import _protected_division
+
 
 class EvolutionaryAlg:
-    def __init__(self, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_rate=0.1, tournament_size=2):
+    def protected_division(x, y):
+        if y == 0:
+            return 1
+        return x / y
+
+    def __init__(self, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
         # Loading parameters
         self.params = {}
         self.params["POP_SIZE"] = pop_size
@@ -14,10 +23,16 @@ class EvolutionaryAlg:
         self.params["MIN_TREE_DEPTH"] = min_tree_depth
         self.params["CROSSOVER_RATE"] = crossover_rate
         self.params["MUTATION_RATE"] = mutation_rate
-        self.params["ELITISM_RATE"] = elitism_rate
+        self.params["ELITISM_SIZE"] = elitism_size
         self.params["TOURNAMENT_SIZE"] = tournament_size
+        self.params["LEARNING_FACTOR"] = 0.01
+        self.params['INCREMENT_LEARNING_FACTOR'] = 0.0001
         self.params['SEED'] = int(datetime.now().microsecond)
         np.random.seed(int(self.params['SEED']))
+
+        self._invalid_fitness_value = 1e10
+        self.best = None
+        self.worst = None
 
         # Defining the grammar used
         grammar_dic = {
@@ -33,10 +48,11 @@ class EvolutionaryAlg:
                 [('+', 'T')], 
                 [('-', 'T')], 
                 [('*', 'T')], 
-                [('\\eb_div_\\eb', 'T')]
+                [('|protec_div|', 'T')]
             ],
             '<var>': [
                 [('x[0]', 'T')], 
+                [('x[1]', 'T')], 
                 [('1.0', 'T')]
             ]
         }
@@ -52,7 +68,12 @@ class EvolutionaryAlg:
                            max_tree_depth=self.params['MAX_TREE_DEPTH'], 
                            min_tree_depth=self.params['MIN_TREE_DEPTH'],
                            shortest_path=shortest_path)
+        
 
+    """
+        _____________________________________________________________________________________________
+                                 Generation of indidivuals and population
+    """
     def generate_random_individual_aux(self, genome, symbol, curr_depth):
         codon = np.random.uniform()
         if curr_depth > self.params['MIN_TREE_DEPTH']:
@@ -90,71 +111,188 @@ class EvolutionaryAlg:
         return {'genotype': genotype, 'fitness': None, 'tree_depth' : tree_depth}
 
     def generate_random_population(self):
-        for individual in range(self.params['POP_SIZE']):
+        for _ in range(self.params['POP_SIZE']):
             yield self.generate_random_individual()
 
-    def evaluate(self, ind, eval_func):
-        mapping_values = [0 for _ in ind['genotype']]
-        phen, tree_depth = self.cfg.mapping(ind['genotype'], mapping_values)
-        quality, other_info = eval_func.evaluate(phen)
-        ind['phenotype'] = phen
-        ind['fitness'] = quality
-        ind['other_info'] = other_info
-        ind['mapping_values'] = mapping_values
-        ind['tree_depth'] = tree_depth
+
+    """
+        _____________________________________________________________________________________________
+                                        Evaluation of an individual
+    """
+    def Xy_evaluate(self, phenotype, X, y):
+        if phenotype is None:
+            return None
+        
+        # For each row in X, calculate the result of the phenotype
+        error = np.zeros(y.shape)
+        for row in X:
+            try:
+                result = eval(phenotype, globals(), {"x": row, "protec_div": _protected_division})
+                error[row] = (y[row] - result)**2
+            except (OverflowError, ValueError, ZeroDivisionError) as e:
+                return self._invalid_fitness_value
+        
+        N = y.shape[0]
+        fitness_value = np.sqrt( error.sum() / N)
+
+        if fitness_value is None:
+            return self._invalid_fitness_value
+        
+        if np.isnan(fitness_value):
+            assert False, "Fitness value is NaN"
+
+        return fitness_value
+
+    def evaluate(self, individual, X, y):
+        mapping_values = [0 for _ in individual['genotype']]
+        phen, tree_depth = self.cfg.mapping(individual['genotype'], mapping_values)
+        quality = self.Xy_evaluate(phen, X, y) # Apply X, y here
+        individual['phenotype'] = phen
+        individual['fitness'] = quality
+        individual['mapping_values'] = mapping_values
+        individual['tree_depth'] = tree_depth
+
+
+    """
+        _____________________________________________________________________________________________
+                                            PCFG Update
+    """
+    def prod_rule_expansion_counter(self, genotype):
+        # Count the number of times each production rule is used on given genotype
+        prod_counter = []
+        for nt in self.cfg.non_terminals:
+            expansion_list = genotype[self.cfg.non_terminals.index(nt)]
+            counter = [0] * len(self.cfg.grammar[nt])
+            for prod, _ in expansion_list:
+                counter[prod] += 1
+            prod_counter.append(counter)
+        return prod_counter
+
+    def update_probs(self, best=None):
+        if best is None:
+            best = self.best
+
+        prod_counter = self.prod_rule_expansion_counter(best['genotype'])
+        rows, columns = self.cfg.pcfg.shape
+        mask = copy.deepcopy(self.cfg.pcfg_mask)
+        for i in range(rows):
+            if np.count_nonzero(mask[i,:]) <= 1:
+                continue
+            total = sum(prod_counter[i])
+
+            for j in range(columns):
+                if not mask[i,j]:
+                    continue
+                counter = prod_counter[i][j]
+                old_prob = self.cfg.pcfg[i][j]
+
+                if counter > 0:
+                    self.cfg.pcfg[i][j] = min(old_prob + self.params['LEARNING_FACTOR'] * counter / total, 1.0)
+                elif counter == 0:
+                    self.cfg.pcfg[i][j] = max(old_prob - self.params['LEARNING_FACTOR'] * old_prob, 0.0)
+
+            self.cfg.pcfg[i,:] = np.clip(self.cfg.pcfg[i,:], 0, np.infty) / np.sum(np.clip(self.cfg.pcfg[i,:], 0, np.infty))
+        
+
+    """
+        _____________________________________________________________________________________________
+                                                Evolution
+    """
+    def get_worst_idx(self, pop):
+        idx_worst = -1
+        while pop[idx_worst]['fitness'] >= self._invalid_fitness_value:
+            idx_worst -= 1
+        return idx_worst
 
     def Evolve(self, X, y):
         # Initial pop
         pop = list(self.generate_random_population())
-        flag = False    # alternate False - best overall
-        best = None
+
+        # Setup
+        use_best_of_gen = False
+        best_of_gen = None
         it = 0
-        for i in population:
+
+        # Evaluate initial pop
+        for i in pop:
             if i['fitness'] is None:
                 self.evaluate(i, X, y)
-        while it <= params['GENERATIONS']:        
 
-            population.sort(key=lambda x: x['fitness'])
-            # best individual overall
-            if not best:
-                best = copy.deepcopy(population[0])
-            elif population[0]['fitness'] <= best['fitness']:
-                best = copy.deepcopy(population[0])
-        
-            if not flag:
-                update_probs(best, params['LEARNING_FACTOR'])
+        # Start evolution
+        print("Starting evolution...")
+        while it <= self.params['MAX_GENERATIONS']:
+            print("Generation: ", it)
+            pop.sort(key=lambda x: x['fitness'])
+
+            # Save best and worst
+            if self.best is None:
+                self.best = copy.deepcopy(pop[0])
+                idx_worst = self.get_worst_idx(pop)
+                self.worst = copy.deepcopy(pop[idx_worst])
             else:
-                update_probs(best_gen, params['LEARNING_FACTOR'])
-            flag = not flag
+                if self.best['fitness'] > pop[0]['fitness']:
+                    self.best = copy.deepcopy(pop[0])
 
-            if params['ADAPTIVE']:
-                params['LEARNING_FACTOR'] += params['ADAPTIVE_INCREMENT']
+                idx_worst = self.get_worst_idx(pop)
+                if self.worst['fitness'] < pop[idx_worst]['fitness']:
+                    self.worst = copy.deepcopy(pop[idx_worst])
 
+            # Alternate between best overall and best of generation
+            if use_best_of_gen:
+                self.update_probs()
+            else:
+                self.update_probs(best_of_gen)
+            use_best_of_gen = not use_best_of_gen
+
+            # Increment learning factor
+            if self.params['INCREMENT_LEARNING_FACTOR'] > 0:
+                self.params['LEARNING_FACTOR'] += self.params['INCREMENT_LEARNING_FACTOR']
         
-            logger.evolution_progress(it, population, best, grammar.get_pcfg())
+            # Log here: (it, pop, best, grammar.get_pcfg())
 
-            new_population = []
-            while len(new_population) < params['POPSIZE'] - params['ELITISM']:
-                if np.random.uniform() < params['PROB_CROSSOVER']:
-                    p1 = tournament(population, params['TSIZE'])
-                    p2 = tournament(population, params['TSIZE'])
-                    ni = crossover(p1, p2)
+            # Generate new population
+            new_pop = []
+            while len(new_pop) < self.params['POP_SIZE'] - self.params['ELITISM_SIZE']:
+                
+                # Tournament selection
+                if self.params['TOURNAMENT_SIZE'] > 0:
+                    if np.random.uniform() < self.params['CROSSOVER_RATE']:
+                        # WITH crossover
+                        parent1 = tournament(pop, self.params['TOURNAMENT_SIZE'])
+                        parent2 = tournament(pop, self.params['TOURNAMENT_SIZE'])
+                        new_individual = crossover(parent1, parent2, self.cfg)
+                    else:
+                        # WITHOUT crossover
+                        new_individual = tournament(pop, self.params['TOURNAMENT_SIZE'])
+
+                # Roulllete selection
                 else:
-                    ni = tournament(population, params['TSIZE'])
-                ni = mutate(ni, params['PROB_MUTATION'])
-                new_population.append(ni)
+                    if np.random.uniform() < self.params['CROSSOVER_RATE']:
+                        # WITH crossover
+                        parent1 = roulette(pop)
+                        parent2 = roulette(pop)
+                        new_individual = crossover(parent1, parent2)
+                    else:
+                        # WITHOUT crossover
+                        new_individual = roulette(pop)
 
-            for i in tqdm(new_population):
-                evaluate(i, evaluation_function)
-            new_population.sort(key=lambda x: x['fitness'])
+                # Mutation
+                new_individual = mutate(new_individual, grammar=self.cfg, pmutation=self.params['MUTATION_RATE'])
+                new_pop.append(new_individual)
+
+            # Evaluate new population
+            for i in new_pop:
+                self.evaluate(i, X, y)
+            new_pop.sort(key=lambda x: x['fitness'])
+
             # best individual from the current generation
-            best_gen = copy.deepcopy(new_population[0])
+            best_of_gen = copy.deepcopy(new_pop[0])
 
-            for i in tqdm(population[:params['ELITISM']]):
-                evaluate(i, evaluation_function)
-            new_population += population[:params['ELITISM']]
+            for i in pop[:self.params['ELITISM_SIZE']]:
+                self.evaluate(i, X, y)
+            new_pop += pop[:self.params['ELITISM_SIZE']]
 
-            population = new_population
+            pop = new_pop
             it += 1
 
         
