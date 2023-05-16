@@ -30,9 +30,9 @@ y_test = np.array([6, 4, 4, 2])
 
 solver.fit(X_train, y_train)
 predicted = solver.predict(X_test)
-solver.score(y_test)
 
-solver.print_predicted_expression()
+#solver.score(y_test)
+#solver.print_predicted_expression()
 
 # Testing
 """

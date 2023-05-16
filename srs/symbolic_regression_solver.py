@@ -21,7 +21,9 @@ class SymbolicRegressionSolver:
 
     def fit(self, X, y):
         # Evoluir até o número máximo de gerações a ser alcançado
-        self.evolutionary_alg.Evolve(X, y)
+        data = self.evolutionary_alg.Evolve(X, y)
+
+        self.results = data
 
     def predict(self, X):
         # Retornar um vetor com as predições para cada linha de X

@@ -219,6 +219,7 @@ class EvolutionaryAlg:
                 self.evaluate(i, X, y)
 
         # Start evolution
+        data = []
         print("Starting evolution...")
         while it <= self.params['MAX_GENERATIONS']:
             print("Generation: ", it)
@@ -252,15 +253,27 @@ class EvolutionaryAlg:
 
             # Generate new population
             new_pop = []
+            crossover_improvement_count = 0
+            crossover_degradation_count = 0
+            crossover_total_count = 0
             while len(new_pop) < self.params['POP_SIZE'] - self.params['ELITISM_SIZE']:
-                
                 # Tournament selection
                 if self.params['TOURNAMENT_SIZE'] > 0:
                     if np.random.uniform() < self.params['CROSSOVER_RATE']:
                         # WITH crossover
+                        crossover_total_count += 1
                         parent1 = tournament(pop, self.params['TOURNAMENT_SIZE'])
                         parent2 = tournament(pop, self.params['TOURNAMENT_SIZE'])
                         new_individual = crossover(parent1, parent2, self.cfg)
+
+                        self.evaluate(new_individual, X, y)
+                        print('Parents fitness:', parent1['fitness'], parent2['fitness'], '  |   Child fitness:', new_individual['fitness'])
+                        mean_parents_fitness = (parent1['fitness'] + parent2['fitness']) / 2
+                        print('Parents fitness:', parent1['fitness'], parent2['fitness'], '  |   Child fitness:', new_individual['fitness'])
+                        if new_individual['fitness'] > mean_parents_fitness:
+                            crossover_improvement_count += 1
+                        elif new_individual['fitness'] < mean_parents_fitness:
+                            crossover_degradation_count += 1
                     else:
                         # WITHOUT crossover
                         new_individual = tournament(pop, self.params['TOURNAMENT_SIZE'])
@@ -269,9 +282,14 @@ class EvolutionaryAlg:
                 else:
                     if np.random.uniform() < self.params['CROSSOVER_RATE']:
                         # WITH crossover
+                        crossover_total_count += 1
                         parent1 = roulette(pop)
                         parent2 = roulette(pop)
                         new_individual = crossover(parent1, parent2)
+                        if new_individual['fitness'] > mean_parents_fitness:
+                            crossover_improvement_count += 1
+                        elif new_individual['fitness'] < mean_parents_fitness:
+                            crossover_degradation_count += 1
                     else:
                         # WITHOUT crossover
                         new_individual = roulette(pop)
@@ -292,7 +310,21 @@ class EvolutionaryAlg:
                 self.evaluate(i, X, y)
             new_pop += pop[:self.params['ELITISM_SIZE']]
 
+            generation_data = {'iteration': it,
+                               'best_all': self.best['fitness'], 
+                               'best_curr': best_of_gen['fitness'], 
+                               'worst_all': self.worst['fitness'],
+                               'worst_curr': new_pop[self.get_worst_idx(new_pop)]['fitness'], 
+                               'avg': np.mean([i['fitness'] for i in pop])
+                               }
+            generation_data['repeated_count'] = len([i for i in pop if i['genotype'] == self.best['genotype']])
+            generation_data['crossover_total_count'] = crossover_total_count
+            generation_data['crossover_improved'] = crossover_improvement_count
+            generation_data['crossover_degraded'] = crossover_degradation_count
+            data.append(generation_data)
             pop = new_pop
             it += 1
 
+
+        return data
         
