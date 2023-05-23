@@ -17,29 +17,58 @@ class SymbolicRegressionSolver:
                                                 elitism_size, 
                                                 tournament_size)
         
-        self.results = [] # Lista de <Result()>'s
+        self.results = []
 
-    def fit(self, X, y):
+    def test_change(self):
+        print("All ok 3")
+
+    def fit(self, X, y, name=str(datetime.now())):
         # Evoluir até o número máximo de gerações a ser alcançado
         data = self.evolutionary_alg.Evolve(X, y)
 
-        self.results = data
+        self.results.append((name, data))
 
-    def predict(self, X):
+    def predict(self, X, name=None, custom_phenotype=None):
         # Retornar um vetor com as predições para cada linha de X
         y_hat = np.zeros(X.shape[0])
-        for row in X:
+
+        if name  != None:
+            for result in self.results:
+                if result[0] == name:
+                    best_phenotype = result[1][-1]["best_all"]["phenotype"]
+                    break
+        else:
+            best_phenotype = self.results[-1][1][-1]["best_all"]["phenotype"]
+
+        if custom_phenotype != None:
+            best_phenotype = custom_phenotype
+
+        for i in range(X.shape[0]):
             try:
-                y_hat[row] = eval(self.evolutionary_alg.best["phenotype"], globals(), {"x": row, "protec_div": _protected_division})
+                y_hat[i] = eval(best_phenotype, globals(), {"x": X[i], "protec_div": _protected_division})
             except (OverflowError, ValueError, ZeroDivisionError) as e:
                 return self._invalid_fitness_value
             
         return y_hat
 
-    def score(self, y):
-        # Comparar as predições com os valores reais e retornar a acurácia
-        # Comparar indicadores de Teste x Treino
-        pass
+    def score(self, y, y_hat):
+        # Calcular a porcentagem de acerto
+        return np.sum(y == y_hat) / y.shape[0]
 
-    def print_predicted_expression(self):
-        print("Not implemented")
+    def get_predicted_expression(self):
+        # Retornar a expressão do melhor indivíduo
+        return self.results[-1][1][-1]["best_all"]["phenotype"]
+    
+    def get_best_param_per_generation(self, param_name, name = None):
+        per_generation = []
+
+        if name == None:
+            name = self.results[-1][0]
+
+        for result in self.results:
+            if result[0] == name:
+                for generation in result[1]:
+                    per_generation.append(generation[param_name])
+                break
+        
+        return per_generation

@@ -12,14 +12,15 @@ class CFG:
         self.terminals = grammar['<op>'] + grammar['<var>']
         self.start_rule = '<start>'
         self.start_rule_tuple = ('<start>', 'NT')
-        self.n_options_by_non_terminal = {'<start>': 1, '<expr>': 3, '<op>': 4, '<var>': 2}
+        self.n_options_by_non_terminal = {'<start>': 1, '<expr>': 3, '<op>': 5, '<var>': 2}
 
         self.index_of_non_terminal = {}
         self.gen_pcfg()
 
     def gen_pcfg(self):
         # Generating the PCFG
-        arr = np.zeros(shape=(len(self.grammar.keys()),4))
+        max_num_of_options = max(self.n_options_by_non_terminal.values())
+        arr = np.zeros(shape=(len(self.grammar.keys()), max_num_of_options))
 
         for i, nt in enumerate(self.grammar):
             number_probs = len(self.grammar[nt])

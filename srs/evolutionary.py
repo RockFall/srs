@@ -124,22 +124,22 @@ class EvolutionaryAlg:
             return None
         
         # For each row in X, calculate the result of the phenotype
-        error = np.zeros(y.shape)
-        for row in X:
+        error = np.zeros(X.shape[0])
+        for i in range(X.shape[0]):
             try:
-                result = eval(phenotype, globals(), {"x": row, "protec_div": _protected_division})
-                error[row] = (y[row] - result)**2
+                result = eval(phenotype, globals(), {"x": X[i], "protec_div": _protected_division})
+                error[i] = (y[i] - result)**2
             except (OverflowError, ValueError, ZeroDivisionError) as e:
                 return self._invalid_fitness_value
         
-        N = y.shape[0]
+        N = X.shape[0]
         fitness_value = np.sqrt( error.sum() / N)
 
         if fitness_value is None:
             return self._invalid_fitness_value
         
         if np.isnan(fitness_value):
-            assert False, "Fitness value is NaN"
+            return self._invalid_fitness_value
 
         return fitness_value
 
@@ -220,9 +220,9 @@ class EvolutionaryAlg:
 
         # Start evolution
         data = []
-        print("Starting evolution...")
+        print("Starting evolution...\nGeneration: ")
         while it <= self.params['MAX_GENERATIONS']:
-            print("Generation: ", it)
+            print(it, end=' ')
             pop.sort(key=lambda x: x['fitness'])
 
             # Save best and worst
@@ -262,14 +262,18 @@ class EvolutionaryAlg:
                     if np.random.uniform() < self.params['CROSSOVER_RATE']:
                         # WITH crossover
                         crossover_total_count += 1
-                        parent1 = tournament(pop, self.params['TOURNAMENT_SIZE'])
-                        parent2 = tournament(pop, self.params['TOURNAMENT_SIZE'])
-                        new_individual = crossover(parent1, parent2, self.cfg)
+                        non_inite_loop_count = 10000
+                        while True:
+                            parent1 = tournament(pop, self.params['TOURNAMENT_SIZE'])
+                            parent2 = tournament(pop, self.params['TOURNAMENT_SIZE'])
+                            new_individual = crossover(parent1, parent2, self.cfg)
+                            self.evaluate(new_individual, X, y)
+                            non_inite_loop_count -= 1
+                            if new_individual['fitness'] < self._invalid_fitness_value or non_inite_loop_count == 0:
+                                break
 
-                        self.evaluate(new_individual, X, y)
-                        print('Parents fitness:', parent1['fitness'], parent2['fitness'], '  |   Child fitness:', new_individual['fitness'])
                         mean_parents_fitness = (parent1['fitness'] + parent2['fitness']) / 2
-                        print('Parents fitness:', parent1['fitness'], parent2['fitness'], '  |   Child fitness:', new_individual['fitness'])
+
                         if new_individual['fitness'] > mean_parents_fitness:
                             crossover_improvement_count += 1
                         elif new_individual['fitness'] < mean_parents_fitness:
@@ -283,9 +287,18 @@ class EvolutionaryAlg:
                     if np.random.uniform() < self.params['CROSSOVER_RATE']:
                         # WITH crossover
                         crossover_total_count += 1
-                        parent1 = roulette(pop)
-                        parent2 = roulette(pop)
-                        new_individual = crossover(parent1, parent2)
+                        non_inite_loop_count = 10000
+                        while True:
+                            parent1 = roulette(pop)
+                            parent2 = roulette(pop)
+                            new_individual = crossover(parent1, parent2)
+                            self.evaluate(new_individual, X, y)
+                            non_inite_loop_count -= 1
+                            if new_individual['fitness'] < self._invalid_fitness_value or non_inite_loop_count == 0:
+                                break
+
+                        mean_parents_fitness = (parent1['fitness'] + parent2['fitness']) / 2
+
                         if new_individual['fitness'] > mean_parents_fitness:
                             crossover_improvement_count += 1
                         elif new_individual['fitness'] < mean_parents_fitness:
@@ -295,12 +308,20 @@ class EvolutionaryAlg:
                         new_individual = roulette(pop)
 
                 # Mutation
-                new_individual = mutate(new_individual, grammar=self.cfg, pmutation=self.params['MUTATION_RATE'])
+                non_inite_loop_count = 10000
+                while True:
+                    new_individual = mutate(new_individual, grammar=self.cfg, pmutation=self.params['MUTATION_RATE'])
+                    self.evaluate(new_individual, X, y)
+                    non_inite_loop_count -= 1
+                    if new_individual['fitness'] < self._invalid_fitness_value or non_inite_loop_count == 0:
+                        break
+
                 new_pop.append(new_individual)
 
             # Evaluate new population
             for i in new_pop:
-                self.evaluate(i, X, y)
+                if i['fitness'] is None:
+                    self.evaluate(i, X, y)
             new_pop.sort(key=lambda x: x['fitness'])
 
             # best individual from the current generation
@@ -310,14 +331,19 @@ class EvolutionaryAlg:
                 self.evaluate(i, X, y)
             new_pop += pop[:self.params['ELITISM_SIZE']]
 
+            idx_worst = self.get_worst_idx(new_pop)
             generation_data = {'iteration': it,
-                               'best_all': self.best['fitness'], 
-                               'best_curr': best_of_gen['fitness'], 
-                               'worst_all': self.worst['fitness'],
-                               'worst_curr': new_pop[self.get_worst_idx(new_pop)]['fitness'], 
+                               'best_all': self.best,
+                               'best_all_fitness': self.best['fitness'],
+                               'best_curr': best_of_gen,
+                               'best_curr_fitness': best_of_gen['fitness'],
+                               'worst_all': self.worst,
+                               'worst_all_fitness': self.worst['fitness'],
+                               'worst_curr': new_pop[idx_worst], 
+                               'worst_curr_fitness': new_pop[idx_worst]['fitness'],
                                'avg': np.mean([i['fitness'] for i in pop])
                                }
-            generation_data['repeated_count'] = len([i for i in pop if i['genotype'] == self.best['genotype']])
+            generation_data['repeated_count'] = EvolutionaryAlg.find_repeated_individuals_count(pop)
             generation_data['crossover_total_count'] = crossover_total_count
             generation_data['crossover_improved'] = crossover_improvement_count
             generation_data['crossover_degraded'] = crossover_degradation_count
@@ -327,4 +353,20 @@ class EvolutionaryAlg:
 
 
         return data
+    
+    """
+        _____________________________________________________________________________________________
+                                                Utils
+    """
+    def find_repeated_individuals_count(pop):
+        unique_phenos = set()
+        repeated_count = 0
+        for i in pop:
+            pheno = i['phenotype']
+            if pheno in unique_phenos:
+                repeated_count += 1
+            else:
+                unique_phenos
+        return repeated_count
+        
         
