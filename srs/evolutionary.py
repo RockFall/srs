@@ -14,7 +14,7 @@ class EvolutionaryAlg:
             return 1
         return x / y
 
-    def __init__(self, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
+    def __init__(self, X_size=2, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
         # Loading parameters
         self.params = {}
         self.params["POP_SIZE"] = pop_size
@@ -35,6 +35,7 @@ class EvolutionaryAlg:
         self.worst = None
 
         # Defining the grammar used
+        X_vars = [[('x['+str(i)+']', 'T')] for i in range(X_size)]
         grammar_dic = {
             '<start>': [
                 [('<expr>', 'NT')]
@@ -50,10 +51,12 @@ class EvolutionaryAlg:
                 [('*', 'T')], 
                 [('|protec_div|', 'T')]
             ],
-            '<var>': [
-                [('x[0]', 'T')], 
-                [('x[1]', 'T')], 
-                [('1.0', 'T')]
+            '<var>': X_vars + [
+                [('1.0', 'T')],
+                [('2.0', 'T')],
+                [('3.0', 'T')],
+                [('5.0', 'T')],
+                [('7.0', 'T')],
             ]
         }
 
@@ -65,6 +68,7 @@ class EvolutionaryAlg:
         }
 
         self.cfg = CFG(grammar_dic,
+                           X_size=X_size,
                            max_tree_depth=self.params['MAX_TREE_DEPTH'], 
                            min_tree_depth=self.params['MIN_TREE_DEPTH'],
                            shortest_path=shortest_path)
@@ -123,11 +127,20 @@ class EvolutionaryAlg:
         if phenotype is None:
             return None
         
+        code = compile("lambda x, protec_div: " + phenotype, "<string>", "eval")
+        exp_as_func = eval(code)
+        
         # For each row in X, calculate the result of the phenotype
         error = np.zeros(X.shape[0])
         for i in range(X.shape[0]):
             try:
-                result = eval(phenotype, globals(), {"x": X[i], "protec_div": _protected_division})
+                #result = eval(phenotype, globals(), {"x": X[i], "protec_div": _protected_division})
+                #exp_as_func = eval('lambda x, protec_div: ' + phenotype)
+                #result = exp_as_func(X[i], _protected_division)
+
+                #result = exp_as_func([X[i][0], X[i][1], X[i][2], X[i][3], X[i][4], X[i][5], X[i][6], X[i][7]], _protected_division)
+                result = exp_as_func(X[i], _protected_division)
+
                 error[i] = (y[i] - result)**2
             except (OverflowError, ValueError, ZeroDivisionError) as e:
                 return self._invalid_fitness_value
@@ -218,11 +231,17 @@ class EvolutionaryAlg:
             if i['fitness'] is None:
                 self.evaluate(i, X, y)
 
+        # Counter that checks if reached convergence
+        convergence_counter = 0
+        STOP_AFTER_N_NO_PROGRESS_GENS = 15
+
         # Start evolution
         data = []
-        print("Starting evolution...\nGeneration: ")
+        #print("\nStarting evolution...\nGeneration: ")
         while it <= self.params['MAX_GENERATIONS']:
-            print(it, end=' ')
+            #print(it, end=' ')
+            if it % 30 == 0:
+                print('\n', end=' ')
             pop.sort(key=lambda x: x['fitness'])
 
             # Save best and worst
@@ -331,6 +350,9 @@ class EvolutionaryAlg:
                 self.evaluate(i, X, y)
             new_pop += pop[:self.params['ELITISM_SIZE']]
 
+            # Get average fitness of the population
+
+
             idx_worst = self.get_worst_idx(new_pop)
             generation_data = {'iteration': it,
                                'best_all': self.best,
@@ -341,7 +363,8 @@ class EvolutionaryAlg:
                                'worst_all_fitness': self.worst['fitness'],
                                'worst_curr': new_pop[idx_worst], 
                                'worst_curr_fitness': new_pop[idx_worst]['fitness'],
-                               'avg': np.mean([i['fitness'] for i in pop])
+                               'avg': np.mean([i['fitness'] for i in pop]),
+                               'bests_avg': np.mean([i['fitness'] for i in pop[:int(self.params["POP_SIZE"]/4)]]),
                                }
             generation_data['repeated_count'] = EvolutionaryAlg.find_repeated_individuals_count(pop)
             generation_data['crossover_total_count'] = crossover_total_count

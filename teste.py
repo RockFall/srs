@@ -21,34 +21,33 @@ def load_data():
 
     return datasets
 
-solver = srs.SymbolicRegressionSolver()
-X_train = np.array([[1, 1], [2, 2], [1, 2], [0, 1], [0, 0], [2, 1]])
-y_train = np.array([2, 4, 3, 1, 0, 3])
-
-X_test = np.array([[3, 3], [3, 1], [1, 3], [1, 1]])
-y_test = np.array([6, 4, 4, 2])
-
-solver.fit(X_train, y_train)
-predicted = solver.predict(X_test)
-
-#solver.score(y_test)
-#solver.print_predicted_expression()
-
-# Testing
-"""
 datasets = load_data()
-X_train = datasets['synth1-train'][:, :2]
-y_train = datasets['synth1-train'][:, 2]
 
-X_test = datasets['synth1-test'][:, :2]
-y_test = datasets['synth1-test'][:, 2]
+name = 'concrete'
+X_train = datasets[name + '-train'][:, :-1]
+y_train = datasets[name + '-train'][:, -1]
 
-solver.fit(X_train, y_train)
-solver.predict(X_test)
-solver.score(y_test)
+X_test = datasets[name + '-test'][:, :-1]
+y_test = datasets[name + '-test'][:, -1]
+
+solver = srs.SymbolicRegressionSolver()
+
+# Experiments
+scores = {}
+NUM_EXPERIMENTS_PER_CONFIG = 1
+POPULATIONS = [50, 100, 500]
+GENERATIONS = [50, 100, 500]
+best_of_each = {} # Map {'experiment' : 'name_of_best'}
 
 
-solver.print_predicted_expression()
-print(solver.best_fitness())
-print(solver.worst_fitness())
-"""
+solver = srs.SymbolicRegressionSolver()
+
+experiment_name = name+'-default-' + '-pop:' + str(30) + '-gens:' + str(50) + '-it:' + str(0)
+solver.update_params(pop_size=50, max_generations=100)
+solver.fit(X_train, y_train, experiment_name)
+
+print(solver.get_best_param_per_generation('best_all_fitness')[-1])
+
+#y_hat = solver.predict(X_test, name=experiment_name)
+#scores[experiment_name] = solver.score(y_test, y_hat)
+

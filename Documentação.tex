@@ -1,0 +1,142 @@
+\documentclass[a4paper]{article} 
+\input{head}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{mathtools}
+\DeclarePairedDelimiter\ceil{\lceil}{\rceil}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{Proposição}[theorem]{Proposição}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\usepackage{xcolor}
+\usepackage{listings}
+
+\definecolor{mGreen}{rgb}{0,0.6,0}
+\definecolor{mGray}{rgb}{0.5,0.5,0.5}
+\definecolor{mPurple}{rgb}{0.58,0,0.82}
+\definecolor{backgroundColour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{CStyle}{
+    backgroundcolor=\color{backgroundColour},   
+    commentstyle=\color{mGreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{mGray},
+    stringstyle=\color{mPurple},
+    basicstyle=\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    language=C
+}
+
+\lstdefinestyle{Python}{
+    language=Python,
+    basicstyle=\ttfamily,
+    keywordstyle=\color{blue}\ttfamily,
+    stringstyle=\color{red}\ttfamily,
+    commentstyle=\color{gray}\ttfamily,
+    morecomment=[l][\color{magenta}]{\#},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    backgroundcolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    frame=single,
+    rulecolor=\color{black},
+    tabsize=4,
+    captionpos=b,
+    breaklines=true,
+    breakatwhitespace=false,
+    escapeinside={\%*}{*)}
+}
+
+\newcommand{\ha}[1]{\textcolor{purple}{Henrique $\rightarrow$ #1}}
+
+
+\begin{document}
+
+%-------------------------------
+%   TITLE SECTION
+%-------------------------------
+
+\fancyhead[C]{}
+\hrule \medskip % Upper rule
+\begin{minipage}{0.295\textwidth} 
+\raggedright
+\footnotesize
+Caio Rocha\hfill\\   
+% Matrícula: 2020006620\hfill\\
+caiorocha@ufmg.br
+\end{minipage}
+\begin{minipage}{0.4\textwidth} 
+\centering 
+\large 
+\textbf{Trabalho Prático 1 - Controle de Envio de Arquivos}
+\\ 
+\normalsize 
+Redes de Computadores\\
+Universidade Federal de Minas Gerais
+\end{minipage}
+\begin{minipage}{0.295\textwidth} 
+\raggedleft
+\today\hfill\\
+\end{minipage}
+\medskip\hrule 
+\bigskip
+\newcommand{\bigO}{\mathcal{O}}
+\newcommand{\source}[1]{\caption*{Source: {#1}} }
+%-------------------------------
+%   CONTENTS
+%-------------------------------
+
+\section{Introdução}
+Este documento apresenta os detalhes e dificuldades de desenvolvimento referente ao projeto do primeiro trabalho prático da matéria de Redes de Computadores na UFMG: um sistema de controle de envio de arquivos via sockets. O objetivo do trabalho foi implementar um sistema de transferência de arquivos entre um servidor e um cliente utilizando sockets em C. O servidor deve aceitar a conexão de um único cliente, permitindo que ele envie arquivos e armazenando-os internamente. O cliente deve ser capaz de se conectar ao servidor, enviar um arquivo e receber uma confirmação do servidor de que o arquivo foi recebido com sucesso. Este documento se divide entre a explicação da solução usada para completar o trabalho e então os desafios e dificuldades enfrentados.
+
+\section{Solução implementada}
+\subsection{Cliente}
+No cliente, foram criadas três funções principais que auxiliam no seu funcionamento.
+\begin{itemize}
+  \item \texttt{select\_file}: A partir do nome do arquivo, checa a extensão do arquivo é válida conforme os tipos permitidos, e então se o arquivo realmente existe.
+  \item \texttt{wrap\_message}: Recebe o nome do arquivo e um buffer com seu conteúdo. Este buffer será sobrescrito com a mensagem a ser enviada que segue o modelo: nome e extensão do arquivo, seguido do conteúdo do arquivo e por fim a flag \texttt{\textbackslash end}.
+
+  \item \texttt{send\_file}: Responsável por abrir o arquivo e usar seu conteúdo chamando \texttt{wrap\_message} para criar uma mensagem, e então enviá-la através do Socket já criado.
+\end{itemize}
+
+No fluxo da \texttt{main}, o cliente cria um socket e se conecta ao servidor; em seguida entra no loop principal, aguardando pela entrada do usuário com o comando de selecionar um arquivo, enviar ou encerrar conexão. O próprio cliente lida com os casos de comandos incorretos, se desconectando do servidor mas sem desligá-lo.
+
+\subsection{Servidor}
+Para o cliente foram criadas duas funções principais:
+\begin{itemize}
+  \item \texttt{extract\_data}: Recebe o buffer de entrada e dois ponteiros de array  de caracteres para armazenar o nome do arquivo e seu conteúdo. Esta função encontra a posição da divisão entre o nome do arquivo e o início do conteúdo, bem como encontra a flag \texttt{\textbackslash end}, armazenando todos os dados encontrados.
+  \item \texttt{write\_file}: A partir do nome do arquivo encontrado e seu conteúdo, cria ou sobrescreve o arquivo localmente, retornando um código que indica se houve sobrescrita.
+\end{itemize}
+
+Assim, como no cliente, o fluxo da \texttt{main} começa com a criação da socket, seguindo para a operação de \texttt{bind} e a preparação para iniciar a escuta por clientes pedindo para se conectar. O servidor então entra no loop principal primário, onde espera uma conexão ser feita; assim que aceita, entra em um loop secundário onde vai agora esperar por mensagens com \texttt{recv}; ao se receber uma mensagem, checa se é um comando de encerramento \texttt{exit\textbackslash end}, retornando então uma mensagem de encerramento de conexão; ou caso não seja segue para o tratamento da mensagem e criação do arquivo. Por fim, o servidor responde para o cliente que a operação foi concluída e volta a esperar por novas mensagens.
+\linebreak
+\subsection{Desafios enfrentados}
+Dentre as dificuldades enfrentadas ao se fazer o trabalho a maior parte está relacionada a se reacostumar às nuncias da linguagem C, no âmbito de lidar precisamente com os buffers de caracteres e a utilização correta das funções de tratamento de strings. No que se refere a criação e uso dos sockets, o material de apoio dado foi bastante esclarecedor e não houveram muitas dificuldades. As especificações do trabalho em alguns detalhes foram um pouco ambíguas mas nada fora do comum ou que seja qualquer impedidor. Dentre os imprevistos cabe apenas eventos no âmbito pessoal que atrasaram uma entrega mais adiantada. \\
+O trabalho como um todo foi bastante engrandecedor para aprender a lidar com sockets e se ambientar com o envio e recebimento de mensagens entre diferentes máquinas.
+
+
+\end{document}

@@ -7,8 +7,9 @@ from srs.util import _protected_division
 
 
 class SymbolicRegressionSolver:
-    def __init__(self, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
-        self.evolutionary_alg = EvolutionaryAlg(pop_size, 
+    def __init__(self, X_size=2, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
+        self.evolutionary_alg = EvolutionaryAlg(X_size, 
+                                                pop_size, 
                                                 max_generations, 
                                                 max_tree_depth, 
                                                 min_tree_depth, 
@@ -18,6 +19,17 @@ class SymbolicRegressionSolver:
                                                 tournament_size)
         
         self.results = []
+
+    def update_params(self, X_size=2, pop_size=100, max_generations=30, max_tree_depth=7, min_tree_depth=2, crossover_rate=0.9, mutation_rate=0.05, elitism_size=10, tournament_size=2):
+        self.evolutionary_alg = EvolutionaryAlg(X_size, 
+                                                pop_size, 
+                                                max_generations, 
+                                                max_tree_depth, 
+                                                min_tree_depth, 
+                                                crossover_rate, 
+                                                mutation_rate, 
+                                                elitism_size, 
+                                                tournament_size)
 
     def test_change(self):
         print("All ok 3")
@@ -72,3 +84,13 @@ class SymbolicRegressionSolver:
                 break
         
         return per_generation
+    
+    def get_best_experiment(self, name):
+        best = None
+        best_name = None
+        for result in self.results:
+            if name in result[0]:
+                if best == None or result[1][-1]["best_all_fitness"] < best[1][-1]["best_all_fitness"]:
+                    best = result
+                    best_name = result[0]
+        return best_name
